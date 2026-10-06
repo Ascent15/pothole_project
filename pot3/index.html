@@ -1,0 +1,682 @@
+```html
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <title>Real-Time Pothole Detection</title>
+
+    <!-- Leaflet Map CSS -->
+    <link
+        rel="stylesheet"
+        href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+    />
+
+    <style>
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            font-family: Arial, sans-serif;
+            background: #f3f4f6;
+        }
+
+        /* Header */
+
+        header {
+            background: #1f2937;
+            color: white;
+            padding: 20px;
+            text-align: center;
+        }
+
+        header h1 {
+            margin: 0;
+            font-size: 28px;
+        }
+
+        header p {
+            margin: 8px 0 0;
+            color: #d1d5db;
+        }
+
+        /* Main container */
+
+        .container {
+            width: 92%;
+            max-width: 1200px;
+            margin: 25px auto;
+        }
+
+        /* Dashboard cards */
+
+        .dashboard {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+
+        .card {
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.12);
+        }
+
+        .card h3 {
+            margin-top: 0;
+            color: #374151;
+        }
+
+        .value {
+            font-size: 20px;
+            font-weight: bold;
+            color: #111827;
+        }
+
+        /* GPS status */
+
+        .status {
+            display: inline-block;
+            padding: 7px 12px;
+            border-radius: 20px;
+            background: #fef3c7;
+            color: #92400e;
+            font-weight: bold;
+        }
+
+        .connected {
+            background: #d1fae5;
+            color: #065f46;
+        }
+
+        .disconnected {
+            background: #fee2e2;
+            color: #991b1b;
+        }
+
+        /* Map */
+
+        #map {
+            height: 550px;
+            width: 100%;
+            border-radius: 10px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+        }
+
+        /* Controls */
+
+        .controls {
+            margin-top: 15px;
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        button {
+            padding: 10px 18px;
+            border: none;
+            border-radius: 6px;
+            background: #2563eb;
+            color: white;
+            cursor: pointer;
+            font-size: 15px;
+        }
+
+        button:hover {
+            background: #1d4ed8;
+        }
+
+        .danger {
+            background: #dc2626;
+        }
+
+        .danger:hover {
+            background: #b91c1c;
+        }
+
+        /* Pothole count */
+
+        .pothole-count {
+            color: #dc2626;
+            font-size: 22px;
+            font-weight: bold;
+        }
+
+        /* Responsive */
+
+        @media (max-width: 800px) {
+
+            .dashboard {
+                grid-template-columns: repeat(2, 1fr);
+            }
+
+            #map {
+                height: 450px;
+            }
+        }
+
+        @media (max-width: 500px) {
+
+            .dashboard {
+                grid-template-columns: 1fr;
+            }
+
+            #map {
+                height: 400px;
+            }
+        }
+
+    </style>
+
+</head>
+
+<body>
+
+<header>
+
+    <h1>Real-Time Pothole Detection & Mapping</h1>
+
+    <p>
+        Arduino Uno + NEO-6M GPS + MPU6050
+    </p>
+
+</header>
+
+
+<div class="container">
+
+
+    <!-- Dashboard -->
+
+    <div class="dashboard">
+
+
+        <div class="card">
+
+            <h3>Latitude</h3>
+
+            <div
+                class="value"
+                id="latitude">
+                Waiting...
+            </div>
+
+        </div>
+
+
+        <div class="card">
+
+            <h3>Longitude</h3>
+
+            <div
+                class="value"
+                id="longitude">
+                Waiting...
+            </div>
+
+        </div>
+
+
+        <div class="card">
+
+            <h3>GPS Status</h3>
+
+            <span
+                class="status"
+                id="gpsStatus">
+                Waiting for GPS
+            </span>
+
+        </div>
+
+
+        <div class="card">
+
+            <h3>Potholes Detected</h3>
+
+            <div
+                class="pothole-count"
+                id="potholeCount">
+                0
+            </div>
+
+        </div>
+
+
+    </div>
+
+
+    <!-- Map -->
+
+    <div class="card">
+
+        <h3>Live GPS Location</h3>
+
+        <div id="map"></div>
+
+
+        <div class="controls">
+
+            <button onclick="centerOnGPS()">
+                Center on GPS
+            </button>
+
+            <button onclick="loadPotholes()">
+                Refresh Potholes
+            </button>
+
+            <button
+                class="danger"
+                onclick="clearPotholeMarkers()">
+                Clear Markers
+            </button>
+
+        </div>
+
+    </div>
+
+
+</div>
+
+
+<!-- Leaflet JavaScript -->
+
+<script
+    src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js">
+</script>
+
+
+<script>
+
+    /*
+     * Default map position
+     * Chennai
+     */
+
+    let defaultLatitude = 13.0827;
+    let defaultLongitude = 80.2707;
+
+
+    /*
+     * Create map
+     */
+
+    let map = L.map("map").setView(
+        [defaultLatitude, defaultLongitude],
+        13
+    );
+
+
+    /*
+     * OpenStreetMap
+     */
+
+    L.tileLayer(
+        "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
+        {
+            maxZoom: 19,
+
+            attribution:
+                "&copy; OpenStreetMap contributors"
+        }
+    ).addTo(map);
+
+
+    /*
+     * Current GPS marker
+     */
+
+    let gpsMarker = null;
+
+
+    /*
+     * Pothole markers
+     */
+
+    let potholeMarkers = [];
+
+
+    /*
+     * Store latest GPS coordinates
+     */
+
+    let currentLatitude = null;
+    let currentLongitude = null;
+
+
+    /*
+     * Update GPS information
+     */
+
+    async function updateGPS() {
+
+        try {
+
+            const response =
+                await fetch("/api/gps");
+
+            const data =
+                await response.json();
+
+
+            /*
+             * Check GPS coordinates
+             */
+
+            if (
+                data.latitude !== null &&
+                data.longitude !== null
+            ) {
+
+                currentLatitude =
+                    data.latitude;
+
+                currentLongitude =
+                    data.longitude;
+
+
+                /*
+                 * Display coordinates
+                 */
+
+                document.getElementById(
+                    "latitude"
+                ).innerText =
+                    data.latitude.toFixed(6);
+
+
+                document.getElementById(
+                    "longitude"
+                ).innerText =
+                    data.longitude.toFixed(6);
+
+
+                /*
+                 * GPS status
+                 */
+
+                const status =
+                    document.getElementById(
+                        "gpsStatus"
+                    );
+
+                status.innerText =
+                    data.gps_status;
+
+                status.className =
+                    "status connected";
+
+
+                /*
+                 * Remove previous GPS marker
+                 */
+
+                if (gpsMarker !== null) {
+
+                    map.removeLayer(
+                        gpsMarker
+                    );
+
+                }
+
+
+                /*
+                 * Create new GPS marker
+                 */
+
+                gpsMarker = L.marker(
+                    [
+                        data.latitude,
+                        data.longitude
+                    ]
+                ).addTo(map);
+
+
+                /*
+                 * GPS popup
+                 */
+
+                gpsMarker.bindPopup(
+
+                    "<b>Current GPS Location</b>" +
+
+                    "<br>Latitude: " +
+                    data.latitude.toFixed(6) +
+
+                    "<br>Longitude: " +
+                    data.longitude.toFixed(6)
+
+                );
+
+
+                /*
+                 * Move map to GPS location
+                 */
+
+                map.setView(
+                    [
+                        data.latitude,
+                        data.longitude
+                    ],
+                    17
+                );
+
+            }
+
+        }
+
+        catch (error) {
+
+            console.error(
+                "GPS error:",
+                error
+            );
+
+
+            const status =
+                document.getElementById(
+                    "gpsStatus"
+                );
+
+            status.innerText =
+                "Server Disconnected";
+
+            status.className =
+                "status disconnected";
+
+        }
+
+    }
+
+
+    /*
+     * Load pothole locations
+     */
+
+    async function loadPotholes() {
+
+        try {
+
+            const response =
+                await fetch(
+                    "/api/potholes"
+                );
+
+            const potholes =
+                await response.json();
+
+
+            /*
+             * Update count
+             */
+
+            document.getElementById(
+                "potholeCount"
+            ).innerText =
+                potholes.length;
+
+
+            /*
+             * Remove old pothole markers
+             */
+
+            potholeMarkers.forEach(
+                marker => map.removeLayer(marker)
+            );
+
+            potholeMarkers = [];
+
+
+            /*
+             * Add pothole markers
+             */
+
+            potholes.forEach(
+                function(pothole) {
+
+                    const marker =
+                        L.marker(
+                            [
+                                pothole.latitude,
+                                pothole.longitude
+                            ]
+                        ).addTo(map);
+
+
+                    /*
+                     * Popup
+                     */
+
+                    marker.bindPopup(
+
+                        "<b>⚠ POTHOLE DETECTED</b>" +
+
+                        "<br><br>" +
+
+                        "Latitude: " +
+                        pothole.latitude.toFixed(6) +
+
+                        "<br>" +
+
+                        "Longitude: " +
+                        pothole.longitude.toFixed(6) +
+
+                        "<br>" +
+
+                        "Time: " +
+                        pothole.time
+
+                    );
+
+
+                    potholeMarkers.push(
+                        marker
+                    );
+
+                }
+            );
+
+        }
+
+        catch (error) {
+
+            console.error(
+                "Pothole loading error:",
+                error
+            );
+
+        }
+
+    }
+
+
+    /*
+     * Center map on current GPS
+     */
+
+    function centerOnGPS() {
+
+        if (
+            currentLatitude !== null &&
+            currentLongitude !== null
+        ) {
+
+            map.setView(
+                [
+                    currentLatitude,
+                    currentLongitude
+                ],
+                18
+            );
+
+            if (gpsMarker !== null) {
+
+                gpsMarker.openPopup();
+
+            }
+
+        }
+
+    }
+
+
+    /*
+     * Clear pothole markers
+     */
+
+    function clearPotholeMarkers() {
+
+        potholeMarkers.forEach(
+            marker => map.removeLayer(marker)
+        );
+
+        potholeMarkers = [];
+
+        document.getElementById(
+            "potholeCount"
+        ).innerText = "0";
+
+    }
+
+
+    /*
+     * Update GPS every 2 seconds
+     */
+
+    setInterval(
+        updateGPS,
+        2000
+    );
+
+
+    /*
+     * Update potholes every 3 seconds
+     */
+
+    setInterval(
+        loadPotholes,
+        3000
+    );
+
+
+    /*
+     * Load immediately
+     */
+
+    updateGPS();
+
+    loadPotholes();
+
+</script>
+
+</body>
+
+</html>
+```
